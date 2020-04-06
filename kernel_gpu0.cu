@@ -3,7 +3,6 @@
 
 #include "kernel.h"
 #include "matrix.h"
-#include "matrix_gpu0.h"
 #include "timer.h"
 
 #define THRESHOLD 0.000001
@@ -184,59 +183,3 @@ void sparseNN(Vector* result, COOMatrix* featureVectors, COOMatrix** layerWeight
 
 }
 
-
-//ELL Matrix operations
-
-ELLMatrix* createEmptyELLMatrix(unsigned int numRows, unsigned int numCols, unsigned int capacity) {
-    ELLMatrix* matrix = (ELLMatrix*)malloc(sizeof(ELLMatrix));
-    matrix->numRows = numRows;
-    matrix->numCols = numCols;
-    matrix->nnz = 0;
-    matrix->rowSize = capacity;
-    matrix->colIndices = (int*)malloc(numRows*capacity*sizeof(int));
-    matrix->values = (float*)malloc(numRows*capacity*sizeof(float));
-    matrix->firstFreeIdxInRow = (int*)malloc(numRows*sizeof(int))
-}
-
-void ELLMatrixAdd(ELLMatrix* matrix, float element, unsigned int row, unsigned int column) {
-
-    if(row >= numRows || col >= numCols || element == 0.0f) {
-        return;
-    }
-
-    //expand capacity of the ELLMatrix if needed
-    if(matrix->firstFreeIdxInRow[row] >= matrix->rowSize) {
-        ELLMatrixExpand(matrix, matrix->firstFreeIdxInRow[row]);
-    }
-
-    //the new element's index in the values array
-    unsigned int idx = row*(matrix->rowSize) + matrix->firstFreeIdxInRow[row];
-
-    matrix->colIndices[idx] = column;
-    matrix->values[idx] = element;
-    matrix->nnz++;
-    matrix->firstFreeIdxInRow[row]++;
-
-}
-
-void ELLMatrixExpand(ELLMatrix* matrix, unsigned int newRowSize) {
-    if(newRowSize <= matrix->rowSize) {
-        return;
-    }
-
-    matrix->colIndices = (int*)realloc(matrix->colIndices, (matrix->numRows)*newRowSize*sizeof(int));
-    matrix->values = (float*)realloc(matrix->values, (matrix->numRows)*newRowSize*sizeof(float));
-    matrix->rowSize = newRowSize;
-}
-
-void ELLMatrixFree(ELLMatrix* matrix) {
-    free(matrix->colIndices);
-    free(matrix->values);
-    free(matrix->firstFreeIdxInRow);
-    free(matrix);
-}
-
-//convert from ELL to CSR in parallel
-CSRMatrix* ELLtoCSR(ELLMatrix* ell) {
-    //TODO
-}
