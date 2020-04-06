@@ -7,7 +7,7 @@ typedef struct ELLMatrix {
     unsigned int nnz;
     unsigned int rowSize;
     unsigned int* colIndices;
-    unsigned int* firstFreeIdxInRow; //to get index of first "available spot" to add an element, for a given row
+    unsigned int* nnzPerRow; //array, number of non-zeros of each row
     float* values;
 } ELLMatrix;
 

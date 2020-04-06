@@ -195,7 +195,7 @@ ELLMatrix* createEmptyELLMatrix(unsigned int numRows, unsigned int numCols, unsi
     matrix->rowSize = capacity;
     matrix->colIndices = (int*)malloc(numRows*capacity*sizeof(int));
     matrix->values = (float*)malloc(numRows*capacity*sizeof(float));
-    matrix->firstFreeIdxInRow = (int*)malloc(numRows*sizeof(int))
+    matrix->nnzPerRow = (int*)malloc(numRows*sizeof(int))
 }
 
 void ELLMatrixAdd(ELLMatrix* matrix, float element, unsigned int row, unsigned int column) {
@@ -205,17 +205,19 @@ void ELLMatrixAdd(ELLMatrix* matrix, float element, unsigned int row, unsigned i
     }
 
     //expand capacity of the ELLMatrix if needed
-    if(matrix->firstFreeIdxInRow[row] >= matrix->rowSize) {
-        ELLMatrixExpand(matrix, matrix->firstFreeIdxInRow[row]);
+    if(matrix->nnzPerRow[row] >= matrix->rowSize) {
+        ELLMatrixExpand(matrix, matrix->nnzPerRow[row]);
     }
 
     //the new element's index in the values array
-    unsigned int idx = row*(matrix->rowSize) + matrix->firstFreeIdxInRow[row];
+    //unsigned int idx = row*(matrix->rowSize) + matrix->nnzPerRow[row];
+
+    unsigned int idx = ell->numRows * column + row;
 
     matrix->colIndices[idx] = column;
     matrix->values[idx] = element;
     matrix->nnz++;
-    matrix->firstFreeIdxInRow[row]++;
+    matrix->nnzPerRow[row]++;
 
 }
 
@@ -232,11 +234,44 @@ void ELLMatrixExpand(ELLMatrix* matrix, unsigned int newRowSize) {
 void ELLMatrixFree(ELLMatrix* matrix) {
     free(matrix->colIndices);
     free(matrix->values);
-    free(matrix->firstFreeIdxInRow);
+    free(matrix->nnzPerRow);
     free(matrix);
 }
 
 //convert from ELL to CSR in parallel
-CSRMatrix* ELLtoCSR(ELLMatrix* ell) {
+//assume output pointer has been allocated by host
+__global__ void ELLtoCSR(CSRMatrix* output, ELLMatrix* ell, int* rowPtrs) {
+
+    //indices to process
+    unsigned int inIdx = blockIdx.x*blockDim.x + threadIdx.x;
+
+    //only need first thread to set these
+    if(inIdx == 0) { 
+        output->numRows = ell->numRows;
+        output->numCols = ell->numCols;
+        output->nnz = ell->nnz;
+        output->rowIdxs = rowPtrs;
+        //TODO: what abt output->capacity ??
+    }
+
+    __syncthreads();
+
+    //the matrix row/col of the current element
+    unsigned int outRow = inIdx % ell->numRows;
+    unsigned int outCol = (int)(inIdx / ell->numRows);
+    
+    //only add to CSR if the element is an actual number (not a padding)
+    //TODO: may need to increase capacity sometimes (depending on initial allocated space)
+    if(outCol < ell->nnzPerRow[outRow]) {
+        unsigned int outIdx = rowPtrs[outRow] + outCol;
+        output->colPtrs[outIdx] = ell->colIndices[inIdx];
+        output->values[outIdx] = ell->values[inIdx];
+    }
+
+}
+
+//exclusive scan of the ELL's nnzPerRow array
+//must be called before converting ELL to CSR (its output is the `rowPtrs` param of ELLtoCSR function)
+__global__ int* ELLGetRowPtrs(ELLMatrix* ell) {
     //TODO
 }
