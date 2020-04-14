@@ -1,4 +1,7 @@
-# CMPS396AA
+## CMPS 396AA Project: Sparse neural networks
+
+### Project topic:
+Implementing a sparse neural network in parallel using CUDA.
 
 ### Team members:
 - Hilal Breiss
@@ -6,5 +9,4 @@
 - Anis El Rabaa
 - Malek Hammad
 
-### Project topic:
-Implementing a sparse neural network with CUDA.
+
