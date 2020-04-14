@@ -201,14 +201,11 @@ __global__ void scan_kernel(unsigned int *input, unsigned int *output) {
         inBuffer_s = outBuffer_s; 
         outBuffer_s = tmp;
     }
-    
-    // if(threadIdx.x == BLOCK_DIM - 1) { 
-    //     partialSums[blockIdx.x] = inBuffer_s[threadIdx.x];
-    // }
+
     output[i] = inBuffer_s[threadIdx.x];
 }
 
-//parallel function to compute histogram (adapted from asst. 6)
+//parallel function to compute histogram
 __global__ void histogram_kernel(float* values, unsigned int* bins, unsigned int size, unsigned int num_bins) {
 
     extern __shared__ int private_bins[];
@@ -264,8 +261,6 @@ CSRMatrix* createCSRfromCOO_gpu(COOMatrix* A) {
     cudaMemcpy(rowIdxs_A, A->rowIdxs, A->nnz*sizeof(unsigned int), cudaMemcpyHostToDevice);
     cudaMemcpy(colIdxs_A, A->colIdxs, A->nnz*sizeof(unsigned int), cudaMemcpyHostToDevice);
     cudaMemcpy(values_A, A->values, A->nnz*sizeof(float), cudaMemcpyHostToDevice);
-
-    //cudaDeviceSynchronize();
 
     //Now we need to compute the rowPtrs (steps 2 and 3)
     //step 2: Histogram (how many non-zeros for each row)
