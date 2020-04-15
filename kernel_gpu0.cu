@@ -165,7 +165,7 @@ __global__ void binning_kernel(unsigned int* rowPtrs, unsigned int* out_colIdxs,
     unsigned int idx = blockIdx.x*blockDim.x + threadIdx.x;
 
     unsigned int row = in_rowIdxs[idx];
-    unsigned int i = rowPtrs[row]++;
+    unsigned int i = atomicAdd(&rowPtrs[row], 1);
 
 
     out_colIdxs[i] = in_colIdxs[idx];
