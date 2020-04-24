@@ -76,44 +76,82 @@ void findNonzeroRows(Vector* v, CSRMatrix* A) {
 }
 
 CSCMatrix* copyCSCToGPU(CSCMatrix* csc) {
-    CSCMatrix* csc_d;
-    cudaMalloc((void **)&csc_d , sizeof(CSRMatrix));
-    cudaMemcpy(csc_d, csc, sizeof(CSRMatrix), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&csc_d->colPtrs , (csc->numCols + 1) * sizeof(unsigned int));
-    cudaMemcpy(csc_d->colPtrs, csc->colPtrs, (csc->numCols + 1) * sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMemset(csc_d->colPtrs, 0, (csc->numCols + 1) * sizeof(unsigned int));
-    cudaMalloc((void **)&csc_d->rowIdxs , csc->nnz * sizeof(unsigned int));
-    cudaMemcpy(csc_d->rowIdxs, csc->rowIdxs, csc->nnz * sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&csc_d->values , csc->nnz * sizeof(float));
-    cudaMemcpy(csc_d->values, csc->values, csc->nnz * sizeof(float), cudaMemcpyHostToDevice);
-    
+
+    //copying the CSC's arrays to GPU
+    unsigned int* colPtrs_d, *rowIdxs_d;
+    float* values_d;
+
+    cudaMalloc((void **)&colPtrs_d , (csc->numCols + 1) * sizeof(unsigned int));
+    cudaMemcpy(colPtrs_d, csc->colPtrs, (csc->numCols + 1) * sizeof(unsigned int), cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&rowIdxs_d , csc->nnz * sizeof(unsigned int));
+    cudaMemcpy(rowIdxs_d, csc->rowIdxs, csc->nnz * sizeof(unsigned int), cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&values_d , csc->nnz * sizeof(float));
+    cudaMemcpy(values_d, csc->values, csc->nnz * sizeof(float), cudaMemcpyHostToDevice);
+
+    //building the resulting CSCMatrix and returning it
+    CSCMatrix* csc_d = (CSCMatrix*)malloc(sizeof(CSCMatrix));
+
+    csc_d->numRows = csc->numRows;
+    csc_d->numCols = csc->numCols;
+    csc_d->nnz = csc->nnz;
+    csc_d->capacity = csc->capacity;
+    csc_d->colPtrs = colPtrs_d;
+    csc_d->rowIdxs = rowIdxs_d;
+    csc_d->values = values_d;
+
     return csc_d;
 }
 
 CSRMatrix* copyCSRToGPU(CSRMatrix* csr) {
-    CSRMatrix* csr_d;
-    cudaMalloc((void **)&csr_d , sizeof(CSRMatrix));
-    cudaMemcpy(csr_d, csr, sizeof(CSRMatrix), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&csr_d->rowPtrs , (csr->numRows + 1) * sizeof(unsigned int));
-    cudaMemcpy(csr_d->rowPtrs, csr->rowPtrs, (csr->numRows + 1) * sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&csr_d->colIdxs , csr->nnz * sizeof(unsigned int));
-    cudaMemcpy(csr_d->colIdxs, csr->colIdxs, csr->nnz * sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&csr_d->values , csr->nnz * sizeof(float));
-    cudaMemcpy(csr_d->values, csr->values, csr->nnz * sizeof(float), cudaMemcpyHostToDevice);
+    //the idea is to create the arrays on the GPU, and copy the CPU values to them.
+    //Then creating csr_d on the CPU, which rowPtrs, colIdxs and values are pointers to the GPU arrays
+    //(structs on the CPU can be passed by value in CUDA, so the ints e.g. nnz do not need to be copied)
+
+    //copying the CSR's arrays to GPU
+    unsigned int* rowPtrs_d, *colIdxs_d;
+    float* values_d;
+    cudaMalloc((void **)&rowPtrs_d , (csr->numRows + 1) * sizeof(unsigned int));
+    cudaMemcpy(rowPtrs_d, csr->rowPtrs, (csr->numRows + 1) * sizeof(unsigned int), cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&colIdxs_d , csr->nnz * sizeof(unsigned int));
+    cudaMemcpy(colIdxs_d, csr->colIdxs, csr->nnz * sizeof(unsigned int), cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&values_d , csr->nnz * sizeof(float));
+    cudaMemcpy(values_d, csr->values, csr->nnz * sizeof(float), cudaMemcpyHostToDevice);
+
+    //building the resulting CSRMatrix and returning it
+    CSRMatrix* csr_d = (CSRMatrix*)malloc(sizeof(CSRMatrix));
+
+    csr_d->numRows = csr->numRows;
+    csr_d->numCols = csr->numCols;
+    csr_d->nnz = csr->nnz;
+    csr_d->capacity = csr->capacity;
+    csr_d->rowPtrs = rowPtrs_d;
+    csr_d->colIdxs = colIdxs_d;
+    csr_d->values = values_d;
     
     return csr_d;
 }
 
 COOMatrix* copyCOOToGPU(COOMatrix* coo) {
-    COOMatrix* coo_d;
-    cudaMalloc((void **)&coo_d , sizeof(COOMatrix));
-    cudaMemcpy(coo_d, coo, sizeof(COOMatrix), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&coo_d->rowIdxs , coo->capacity * sizeof(unsigned int));
-    cudaMemcpy(coo_d->rowIdxs, coo->rowIdxs, coo->capacity * sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&coo_d->colIdxs , coo->capacity * sizeof(unsigned int));
-    cudaMemcpy(coo_d->colIdxs, coo->colIdxs, coo->capacity * sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMalloc((void **)&coo_d->values , coo->capacity * sizeof(float));
-    cudaMemcpy(coo_d->values, coo->values, coo->capacity * sizeof(float), cudaMemcpyHostToDevice);
+
+    unsigned int* rowIdxs_d, *colIdxs_d;
+    float* values_d;
+
+    cudaMalloc((void **)&rowIdxs_d , coo->capacity * sizeof(unsigned int));
+    cudaMemcpy(rowIdxs_d, coo->rowIdxs, coo->capacity * sizeof(unsigned int), cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&colIdxs_d , coo->capacity * sizeof(unsigned int));
+    cudaMemcpy(colIdxs_d, coo->colIdxs, coo->capacity * sizeof(unsigned int), cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&values_d , coo->capacity * sizeof(float));
+    cudaMemcpy(values_d, coo->values, coo->capacity * sizeof(float), cudaMemcpyHostToDevice);
+
+    COOMatrix* coo_d = (COOMatrix*)malloc(sizeof(COOMatrix));
+    coo_d->numRows = coo->numRows;
+    coo_d->numCols = coo->numCols;
+    coo_d->nnz = coo->nnz;
+    coo_d->capacity = coo->capacity;
+    coo_d->rowIdxs = rowIdxs_d;
+    coo_d->colIdxs = colIdxs_d;
+    coo_d->values = values_d;
+    
     
     return coo_d;
 }
@@ -140,18 +178,25 @@ void freeCOOGPU(COOMatrix* coo) {
 }
 
 COOMatrix* createEmptyCOO_gpu(unsigned int numRows, unsigned int numCols, unsigned int capacity) {
+
+    //allocating the arrays in GPU
+    unsigned int* rowIdxs_d, *colIdxs_d;
+    float* values_d;
+    cudaMalloc((void **)&rowIdxs_d , capacity * sizeof(unsigned int));
+    cudaMalloc((void **)&colIdxs_d , capacity * sizeof(unsigned int));
+    cudaMalloc((void **)&values_d , capacity * sizeof(float));
+
+
     COOMatrix* coo = (COOMatrix*) malloc(sizeof(COOMatrix));
     coo->numRows = numRows;
     coo->numCols = numCols;
     coo->nnz = 0;
     coo->capacity = capacity;
-    coo->rowIdxs = (unsigned int *)malloc(capacity*sizeof(unsigned int));
-    coo->colIdxs = (unsigned int *)malloc(capacity*sizeof(unsigned int));
-    coo->values = (float *)malloc(capacity*sizeof(float));
-    COOMatrix *coo_d = copyCOOToGPU(coo);
-    freeCOO(coo);
+    coo->rowIdxs = rowIdxs_d;
+    coo->colIdxs = colIdxs_d;
+    coo->values = values_d;
     
-    return coo_d;
+    return coo;
 }
 
 
@@ -241,7 +286,9 @@ __global__ void histogram_kernel(float* values, unsigned int* bins, unsigned int
     }
 }
 
-CSRMatrix* createCSRfromCOO_gpu(COOMatrix* A) {
+//Note: this is a HOST function that takes a COOMatrix from the CPU by default.
+//If the matrix is stored on the GPU instead, set isStoredInGPU to true.
+CSRMatrix* createCSRfromCOO_gpu(COOMatrix* A, bool isStoredInGPU = false) {
     //step 1: allocate arrays
     //output arrays
     unsigned int* rowPtrs, *colIdxs;
@@ -252,15 +299,24 @@ CSRMatrix* createCSRfromCOO_gpu(COOMatrix* A) {
     cudaMalloc((void**) &colIdxs, A->nnz * sizeof(unsigned int));
     cudaMalloc((void**) &values, A->nnz * sizeof(float));
 
-    //copying A->rowIdxs, A->colIdxs, A->values to GPU
     unsigned int* rowIdxs_A, *colIdxs_A;
     float* values_A;
-    cudaMalloc((void**) &rowIdxs_A, A->nnz*sizeof(unsigned int));
-    cudaMalloc((void**) &colIdxs_A, A->nnz*sizeof(unsigned int));
-    cudaMalloc((void**) &values_A, A->nnz*sizeof(float));
-    cudaMemcpy(rowIdxs_A, A->rowIdxs, A->nnz*sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMemcpy(colIdxs_A, A->colIdxs, A->nnz*sizeof(unsigned int), cudaMemcpyHostToDevice);
-    cudaMemcpy(values_A, A->values, A->nnz*sizeof(float), cudaMemcpyHostToDevice);
+
+    if(!isStoredInGPU) {
+        //if A is stored on CPU, copy A->rowIdxs, A->colIdxs, A->values to GPU
+        cudaMalloc((void**) &rowIdxs_A, A->nnz*sizeof(unsigned int));
+        cudaMalloc((void**) &colIdxs_A, A->nnz*sizeof(unsigned int));
+        cudaMalloc((void**) &values_A, A->nnz*sizeof(float));
+        cudaMemcpy(rowIdxs_A, A->rowIdxs, A->nnz*sizeof(unsigned int), cudaMemcpyHostToDevice);
+        cudaMemcpy(colIdxs_A, A->colIdxs, A->nnz*sizeof(unsigned int), cudaMemcpyHostToDevice);
+        cudaMemcpy(values_A, A->values, A->nnz*sizeof(float), cudaMemcpyHostToDevice);
+    }
+    else {
+        //if stored on GPU, use same pointer names as for the above case, just for convenience
+        rowIdxs_A = A->rowIdxs;
+        colIdxs_A = A->colIdxs;
+        values_A = A->values;
+    }
 
     //Now we need to compute the rowPtrs (steps 2 and 3)
     //step 2: Histogram (how many non-zeros for each row)
@@ -345,7 +401,7 @@ void sparseNN(Vector* result, COOMatrix* featureVectors, COOMatrix** layerWeight
         COOMatrix* res = createEmptyCOO_gpu(inBuffer->numRows, outBuffer->numCols, inBuffer->numRows * outBuffer->numCols);
         spmspm<<< numBlocks, numThreadsPerBlock >>>(res, inBuffer, W_d[layer], bias);
         stopTimeAndPrint(&timer, "");
-        outBuffer = createCSRfromCOO_gpu(res);
+        outBuffer = createCSRfromCOO_gpu(res, true);
         freeCOOGPU(res);
         // Swap buffers
         CSRMatrix *t = inBuffer;
