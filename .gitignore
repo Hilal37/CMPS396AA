@@ -2,4 +2,4 @@ spnn*
 *.o
 *.tsv
 .vscode/settings.json
-*.profs
+*.prof
