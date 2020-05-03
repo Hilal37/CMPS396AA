@@ -1,4 +1,9 @@
 
+/*
+ * Optimization 1: Imnproving thread granularity,
+ * by using one thread per output element instead of one per output row.
+*/
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -8,11 +13,10 @@
 
 #define THRESHOLD 0.000001
 #define YMAX 32
-#define BLOCK_DIM 16
+#define BLOCK_DIM 32
 
 __global__ void spmspm(COOMatrix *result, CSRMatrix *A, CSCMatrix *B, float bias) {
     
-    //Optimization 1: one thread per entry (instead of per row)
     unsigned int row = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned int col = blockIdx.y * blockDim.y + threadIdx.y;
 
