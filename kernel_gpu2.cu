@@ -1,4 +1,8 @@
 
+/*
+ * Optimization 2: Using intra-warp synchronization when updating the non-zero count.
+*/
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -8,89 +12,75 @@
 
 #define THRESHOLD 0.000001
 #define YMAX 32
-#define BLOCK_DIM 16
-#define TILE_DIM 16
+#define BLOCK_DIM 32
+#define WARP_SIZE 32
 
 __global__ void spmspm(COOMatrix *result, CSRMatrix *A, CSCMatrix *B, float bias) {
     
-    //Optimization 2: shared memory tiling
+    unsigned int row = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int col = blockIdx.y * blockDim.y + threadIdx.y;
 
-    //the shared arrays
-    __shared__ int A_colIdxs_s[TILE_DIM][TILE_DIM];
-    __shared__ float A_values_s[TILE_DIM][TILE_DIM];
-    __shared__ int B_rowIdxs_s[TILE_DIM][TILE_DIM];
-    __shared__ float B_values_s[TILE_DIM][TILE_DIM];
-
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    int col = blockIdx.y * blockDim.y + threadIdx.y;
-    int rowStartA, rowEndA, colStartB, colEndB, nnzRowA, nnzColB;
-
-    //had to divide if/else like this, to avoid using __syncthreads() inside an if block (=>avoid deadlock)
     if(row < A->numRows && col < B->numCols) {
-        rowStartA = A->rowPtrs[row];
-        colStartB = B->colPtrs[col];
-        rowEndA = A->rowPtrs[row + 1];
-        colEndB = B->colPtrs[col + 1];
-        nnzRowA = rowEndA - rowStartA;
-        nnzColB = colEndB - colStartB;
-    }
-    else {
-        rowStartA = -1;
-        colStartB = -1;
-        rowEndA = -1;
-        colEndB = -1;
-        nnzRowA = -1;
-        nnzColB = -1;
-    }
-
-    float sum = 0.0f;
-
-    for(unsigned int tile = 0; tile < (A->numRows + TILE_DIM - 1)/TILE_DIM; ++tile) {
-        //fill shared memory arrays
-        unsigned int tileIdx_A = rowStartA + tile*TILE_DIM + threadIdx.x;
-        unsigned int tileIdx_B = colStartB + tile*TILE_DIM + threadIdx.y;
-
-        A_colIdxs_s[threadIdx.x][threadIdx.y] = (tileIdx_A < rowEndA) ? A->colIdxs[tileIdx_A] : 0.0f;
-        A_values_s[threadIdx.x][threadIdx.y] = (tileIdx_A < rowEndA) ? A->values[tileIdx_A] : 0.0f;
-        B_rowIdxs_s[threadIdx.x][threadIdx.y] = (tileIdx_B < colEndB) ? B->rowIdxs[tileIdx_B] : 0.0f;
-        B_values_s[threadIdx.x][threadIdx.y] = (tileIdx_B < colEndB) ? B->values[tileIdx_B] : 0.0f;
-        __syncthreads();
-
-        //compute (partial) sum for the tile
-        unsigned int ia = 0;
-        unsigned int ib = 0;
-        while(ia < TILE_DIM && ia < nnzRowA && ib < TILE_DIM && ib < nnzColB) {
-            unsigned int idxA = A_colIdxs_s[threadIdx.x][ia];
-            unsigned int idxB = B_rowIdxs_s[ib][threadIdx.y];
-            if(idxA == idxB) {
-                sum += A_values_s[threadIdx.x][ia] * B_values_s[ib][threadIdx.y];
-                ia++;
-                ib++;
+        unsigned int nnzRowA = A->rowPtrs[row + 1] - A->rowPtrs[row];
+        unsigned int nnzColB = B->colPtrs[col + 1] - B->colPtrs[col];
+        unsigned int ia = A->rowPtrs[row];
+        unsigned int ib = B->colPtrs[col];
+        unsigned int rowEndA = A->rowPtrs[row + 1];
+        unsigned int colEndB = B->colPtrs[col + 1];
+        if(nnzRowA > 0 && nnzColB > 0) {
+            float sum = 0.0f;
+            while(ia < rowEndA && ib < colEndB) {
+                unsigned int idxA = A->colIdxs[ia];
+                unsigned int idxB = B->rowIdxs[ib];
+                if(idxA == idxB) {
+                    sum += A->values[ia] * B->values[ib];
+			        ia++;
+			        ib++;
+                }
+                else if(idxA < idxB) {
+                    ia++;
+                }
+                else {
+                    ib++;
+                }
             }
-            else if(idxA < idxB) {
-                ia++;
-            }
-            else {
-                ib++;
+            if(sum > THRESHOLD || sum < -THRESHOLD) {
+                sum += bias;
+                //Remove negative and zero values
+                if(sum > 0) {
+                    if(sum>YMAX) {
+                        sum = YMAX;
+                    }
+					// Assign a leader thread
+					unsigned int activeThreads = __activemask();
+					unsigned int leader = __ffs(activeThreads) - 1;
+					
+					// Find how many threads need to add to the queue
+					unsigned int numActive = __popc(activeThreads);
+					
+					// Have the leader perform the atomic operation
+					//unsigned int j;
+					int nnzIdx;
+					if(threadIdx.x%WARP_SIZE == leader){
+						nnzIdx = atomicAdd (&result->nnz, numActive);
+					}
+					
+					// Broadcast the result
+					nnzIdx = __shfl_sync(activeThreads , nnzIdx, leader);
+					
+					// Find the position of each thread
+					unsigned int previousThreads = (1 << (threadIdx.x%WARP_SIZE)) - 1;
+					unsigned int activePreviousThreads = activeThreads & previousThreads;
+					unsigned int offset = __popc(activePreviousThreads);
+					
+                    //int nnzIdx = atomicAdd(&result->nnz, 1);
+                    result->rowIdxs[nnzIdx + offset] = row;
+                    result->colIdxs[nnzIdx + offset] = col;
+                    result->values[nnzIdx + offset] = sum;
+                }    
             }
         }
-        __syncthreads();
     }
-
-    if(sum > THRESHOLD || sum < -THRESHOLD) {
-        sum += bias;
-        //Remove negative and zero values
-        if(sum > 0) {
-            if(sum>YMAX) {
-                sum = YMAX;
-            }
-            int nnzIdx = atomicAdd(&result->nnz, 1);
-            result->rowIdxs[nnzIdx] = row;
-            result->colIdxs[nnzIdx] = col;
-            result->values[nnzIdx] = sum;
-        }    
-    }
-
 }
 
 void findNonzeroRows(Vector* v, CSRMatrix* A) {
